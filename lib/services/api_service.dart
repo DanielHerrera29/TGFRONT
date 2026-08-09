@@ -191,7 +191,9 @@ class ApiService {
           },
           body: jsonEncode({'pdfBase64': base64Encode(pdf)}),
         )
-        .timeout(const Duration(seconds: 60));
+        // Render Free puede tardar cerca de un minuto en despertar antes de
+        // que la API suba el PDF y contacte el servidor de correo.
+        .timeout(const Duration(seconds: 150));
     _ensureSuccess(response);
   }
 
