@@ -33,6 +33,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
   final List<_TrayectoControllers> _viajes = [_TrayectoControllers()];
   DateTime _fecha = DateTime.now();
   bool _enviando = false;
+  String _estadoEnvio = '';
 
   @override
   void dispose() {
@@ -106,7 +107,10 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
       );
       return;
     }
-    setState(() => _enviando = true);
+    setState(() {
+      _enviando = true;
+      _estadoEnvio = 'Registrando la orden...';
+    });
     try {
       final creada = await ApiService.reservarOrdenEscolta(
         token: token,
@@ -118,12 +122,14 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
         observaciones: _observaciones.text.trim(),
         viajes: _viajes.map((viaje) => viaje.toMap()).toList(),
       );
+      if (mounted) setState(() => _estadoEnvio = 'Generando el PDF firmado...');
       final firma = await _firma.toPngBytes();
       if (firma == null) throw Exception('No fue posible generar la firma.');
       final pdf = await _buildPdf(
         consecutivo: creada.consecutivo,
         firma: firma,
       );
+      if (mounted) setState(() => _estadoEnvio = 'Guardando el PDF...');
       await ApiService.enviarOrdenEscolta(
         token: token,
         ordenId: creada.id,
@@ -154,7 +160,12 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _enviando = false);
+      if (mounted) {
+        setState(() {
+          _enviando = false;
+          _estadoEnvio = '';
+        });
+      }
     }
   }
 
@@ -512,19 +523,21 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
                 ),
               ),
               const SizedBox(height: 10),
-              FilledButton.icon(
-                onPressed: _enviando ? null : _confirmar,
-                icon: _enviando
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.send_outlined),
-                label: Text(
-                  _enviando
-                      ? 'Guardando y enviando...'
-                      : 'Generar y enviar orden',
+              Tooltip(
+                message:
+                    'Genera el PDF firmado, registra la orden y la envía al correo configurado.',
+                child: FilledButton.icon(
+                  onPressed: _enviando ? null : _confirmar,
+                  icon: _enviando
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_outlined),
+                  label: Text(
+                    _enviando ? _estadoEnvio : 'Generar y enviar orden',
+                  ),
                 ),
               ),
             ],
