@@ -28,6 +28,9 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
       - name: Instalar dependencias
         run: flutter pub get
 
@@ -38,7 +41,7 @@ jobs:
           --dart-define=API_URL=https://tgback-api.onrender.com
 
       - name: Preparar artefacto de Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: build/web
 
