@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app.dart';
@@ -16,7 +17,8 @@ import 'modules/vehiculos/providers/vehiculos_provider.dart';
 import 'modules/settings/providers/settings_provider.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  final binding = WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: binding);
 
   await Supabase.initialize(
     url: SupabaseConfig.url,
@@ -28,6 +30,7 @@ Future<void> main() async {
   await settingsProvider.load();
 
   runApp(MainApp(store: store, settingsProvider: settingsProvider));
+  FlutterNativeSplash.remove();
 }
 
 class MainApp extends StatelessWidget {

@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ^3.12.2
@@ -41,10 +41,12 @@ dependencies:
   pdf: ^3.11.1
   printing: ^5.13.2
   signature: ^6.4.0
+  flutter_native_splash: ^2.4.8
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.4
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -66,6 +68,8 @@ flutter:
   assets:
     - assets/data/municipios_dane.json
     - assets/images/teg_logo.png
+    - assets/images/app_icon.png
+    - assets/images/app_splash_logo.png
     - assets/fonts/arial.ttf
     - assets/fonts/arialbd.ttf
 
@@ -99,3 +103,21 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/images/app_icon.png
+  adaptive_icon_background: '#FFFFFF'
+  adaptive_icon_foreground: assets/images/app_icon.png
+  remove_alpha_ios: true
+
+flutter_native_splash:
+  color: '#FFFFFF'
+  image: assets/images/app_splash_logo.png
+  android: true
+  ios: true
+  android_12:
+    color: '#FFFFFF'
+    image: assets/images/app_icon.png
+    branding: assets/images/app_splash_logo.png
