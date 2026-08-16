@@ -10,6 +10,7 @@ import 'package:signature/signature.dart';
 
 import '../../../services/api_service.dart';
 import '../../auth/providers/auth_provider.dart';
+import 'firma_completa_screen.dart';
 
 class NuevaOrdenEscoltaScreen extends StatefulWidget {
   const NuevaOrdenEscoltaScreen({super.key});
@@ -95,6 +96,16 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
       ),
     );
     if (confirma == true) await _generarYEnviar();
+  }
+
+  Future<void> _abrirFirma() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => FirmaCompletaScreen(controller: _firma),
+      ),
+    );
+    if (mounted) setState(() {});
   }
 
   Future<void> _generarYEnviar() async {
@@ -443,7 +454,6 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: const Text('Nueva orden de escolta')),
       body: SafeArea(
@@ -496,31 +506,11 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
                 (entry) => _viajeEditor(entry.key, entry.value),
               ),
               _field(_observaciones, 'Observaciones', maxLines: 3),
-              const SizedBox(height: 4),
-              Text(
-                'Firma autorizada',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 6),
-              Container(
-                height: 150,
-                decoration: BoxDecoration(
-                  border: Border.all(color: colors.outline),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Signature(
-                  controller: _firma,
-                  backgroundColor: colors.surface,
-                  height: 150,
-                ),
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: _firma.clear,
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('Limpiar firma'),
-                ),
+              const SizedBox(height: 12),
+              FirmaCard(
+                firmada: !_firma.isEmpty,
+                enabled: !_enviando,
+                onPressed: _abrirFirma,
               ),
               const SizedBox(height: 10),
               Tooltip(
