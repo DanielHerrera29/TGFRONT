@@ -1,4 +1,9 @@
+import 'package:uuid/uuid.dart';
+import '../borrador_orden.dart';
+import '../compartir_orden_whatsapp.dart';
+import '../../../services/contacto_escolta.dart';
 import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -9,11 +14,17 @@ import 'package:provider/provider.dart';
 import 'package:signature/signature.dart';
 
 import '../../../services/api_service.dart';
+import '../../../data/models/cliente.dart';
+import '../../../core/config/module_access.dart';
+import '../../clientes/providers/clientes_provider.dart';
+import '../../clientes/crear_cliente_dialog.dart';
+import '../../clientes/vincular_vehiculo_dialog.dart';
 import '../../auth/providers/auth_provider.dart';
 import 'firma_completa_screen.dart';
 
 class NuevaOrdenEscoltaScreen extends StatefulWidget {
-  const NuevaOrdenEscoltaScreen({super.key});
+  final String? clientOrderId;
+  const NuevaOrdenEscoltaScreen({super.key, this.clientOrderId});
 
   @override
   State<NuevaOrdenEscoltaScreen> createState() =>
@@ -34,7 +45,201 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
   final List<_TrayectoControllers> _viajes = [_TrayectoControllers()];
   DateTime _fecha = DateTime.now();
   bool _enviando = false;
+  BorradorOrden? _draft;
+  bool _restoring = true;
+  bool get _locked =>
+      _enviando || _draft?.pending == true || _draft?.confirmed == true;
+  String? _draftError;
+  String? _restoredClient;
+  Uint8List? _savedSignature;
+  ContactoEscolta? _contactoEscolta;
+  String? _contactoError;
+
+  Future<void> _loadContacto() async {
+    try {
+      final contacto = await ContactoEscolta.cargar();
+      if (!mounted) return;
+      setState(() {
+        _contactoEscolta = contacto;
+        _contactoError = null;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _contactoError =
+              'No se pudieron cargar sus vehículos. Administración debe revisar la configuración de usuarios.',
+        );
+      }
+    }
+  }
+
+  Future<void> _restoreDraft() async {
+    _restoring = true;
+    try {
+      final userId = context.read<AuthProvider>().user!.id;
+      final token = context.read<AuthProvider>().user!.apiToken!;
+      final draft = await BorradorOrden.load(
+        userId,
+        orderId: _draft?.state['clientOrderId'] ?? widget.clientOrderId,
+        nueva: _draft == null && widget.clientOrderId == null,
+      );
+      if (widget.clientOrderId != null && draft.state['fields'] == null) {
+        await draft.recover(token);
+      }
+      if (!mounted) return;
+      _draft = draft;
+      _savedSignature = draft.state['signature'] == null
+          ? null
+          : base64Decode(draft.state['signature']);
+      final f = Map<String, dynamic>.from(draft.state['fields'] ?? {});
+      _empresa.text = f['empresa'] ?? '';
+      _placaCamabaja.text = f['placaCamabaja'] ?? '';
+      _placaEscolta.text = f['placaEscolta'] ?? '';
+      _escolta.text = f['nombreEscolta'] ?? '';
+      _observaciones.text = f['observaciones'] ?? '';
+      _restoredClient = f['clienteId'];
+      _clienteSeleccionado = null;
+      _vehiculoSeleccionado = null;
+      _fecha = DateTime.tryParse(f['fecha'] ?? '') ?? DateTime.now();
+      if (f['viajes'] is List) {
+        for (final v in _viajes) {
+          v.dispose();
+        }
+        _viajes.clear();
+        for (final raw in f['viajes']) {
+          final v = _TrayectoControllers(clientId: raw['clientItemId']);
+          v.maquina.text = raw['maquina'] ?? '';
+          v.origen.text = raw['origen'] ?? '';
+          v.destino.text = raw['destino'] ?? '';
+          _viajes.add(v);
+        }
+      }
+      _restoreClient();
+      setState(() => _restoring = false);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _restoring = false;
+          _draftError =
+              'No se pudo recuperar el borrador local. Vuelva a abrir la pantalla.';
+        });
+      }
+    }
+  }
+
+  void _restoreClient() {
+    if (!mounted || _restoredClient == null) return;
+    for (final c in _clientesProvider.clientes) {
+      if (c.id == _restoredClient) {
+        setState(() => _clienteSeleccionado = c);
+        break;
+      }
+    }
+  }
+
+  Future<void> _captureDraft() async {
+    if (_restoring || _draft == null) return;
+    try {
+      await _draft!.capture({
+        'fecha': _fecha.toIso8601String().substring(0, 10),
+        'empresa': _empresa.text.trim(),
+        'placaCamabaja': _placaCamabaja.text.trim(),
+        'placaEscolta': _placaEscolta.text.trim(),
+        'nombreEscolta': _escolta.text.trim(),
+        'observaciones': _observaciones.text.trim(),
+        'clienteId': _clienteSeleccionado?.id ?? _restoredClient,
+        'clienteDocumentoSnapshot': _clienteSeleccionado?.documento,
+        'vehiculoPlacaSnapshot': _placaCamabaja.text.trim(),
+        'viajes': _viajes.map((v) => v.toMap()).toList(),
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _draftError =
+              'No se pudo guardar localmente. No cierre la pantalla.',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _saveDraft() async {
+    if (_draft == null || _enviando) return;
+    final token = context.read<AuthProvider>().user?.apiToken;
+    if (token == null) return;
+    setState(() => _enviando = true);
+    try {
+      await _captureDraft();
+      await _draft!.save(token, confirmar: false);
+      if (mounted) {
+        setState(() => _draftError = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Borrador guardado. El consecutivo por placa se asigna al confirmar. Puede continuarlo desde el historial.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) setState(() => _draftError = e.toString());
+    } finally {
+      if (mounted) setState(() => _enviando = false);
+    }
+  }
+
+  Future<void> _recoverServer() async {
+    if (_draft == null || _enviando) return;
+    final token = context.read<AuthProvider>().user?.apiToken;
+    if (token == null) return;
+    final accept = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Recuperar versión guardada'),
+        content: const Text(
+          'Se cargarán los datos del servidor. Se conservará una copia local de los cambios actuales para recuperación.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Recuperar'),
+          ),
+        ],
+      ),
+    );
+    if (accept != true || !mounted) return;
+    setState(() => _enviando = true);
+    try {
+      await _draft!.recover(token);
+      _firma.clear();
+      await _restoreDraft();
+      if (mounted) setState(() => _draftError = null);
+    } catch (e) {
+      if (mounted) setState(() => _draftError = e.toString());
+    } finally {
+      if (mounted) setState(() => _enviando = false);
+    }
+  }
+
   String _estadoEnvio = '';
+  Cliente? _clienteSeleccionado;
+  String? _vehiculoSeleccionado;
+  late final ClientesProvider _clientesProvider;
+
+  @override
+  void initState() {
+    super.initState();
+    _clientesProvider = ClientesProvider(
+      token: context.read<AuthProvider>().user?.apiToken ?? '',
+    )..load();
+    _clientesProvider.addListener(_restoreClient);
+    _restoreDraft();
+    _loadContacto();
+  }
 
   @override
   void dispose() {
@@ -47,10 +252,25 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
     for (final viaje in _viajes) {
       viaje.dispose();
     }
+    _clientesProvider.removeListener(_restoreClient);
+    _clientesProvider.dispose();
     super.dispose();
   }
 
   bool _validar() {
+    if (_draft?.confirmed != true &&
+        context.read<AuthProvider>().user?.isAdmin != true &&
+        (_contactoEscolta == null ||
+            !_contactoEscolta!.placas.contains(_placaEscolta.text))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Cargue y seleccione uno de sus vehículos escolta antes de confirmar.',
+          ),
+        ),
+      );
+      return false;
+    }
     if (!_formKey.currentState!.validate()) return false;
     for (var index = 0; index < _viajes.length; index++) {
       if (!_viajes[index].estaCompleto) {
@@ -64,7 +284,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
         return false;
       }
     }
-    if (_firma.isEmpty) {
+    if (_firma.isEmpty && _savedSignature == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('La firma autorizada es obligatoria.')),
       );
@@ -74,6 +294,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
   }
 
   Future<void> _confirmar() async {
+    if (_draft == null) return;
     if (!_validar()) return;
     final confirma = await showDialog<bool>(
       context: context,
@@ -81,7 +302,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
         icon: const Icon(Icons.mark_email_read_outlined),
         title: const Text('Confirmar orden'),
         content: const Text(
-          'La orden se guardara, se enviara inmediatamente a transportegutierrezremesas@gmail.com y no podra modificarse. Revise los datos y la firma antes de confirmar.',
+          'La orden se guardará y se enviará por correo. Después podrá compartir el PDF y los detalles por WhatsApp; en el teléfono se abrirá el selector para compartir. Revise los datos y la firma antes de confirmar.',
         ),
         actions: [
           TextButton(
@@ -99,13 +320,34 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
   }
 
   Future<void> _abrirFirma() async {
+    if (_draft?.confirmed == true && _savedSignature != null) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         fullscreenDialog: true,
         builder: (_) => FirmaCompletaScreen(controller: _firma),
       ),
     );
-    if (mounted) setState(() {});
+    if (mounted) {
+      _savedSignature = await _firma.toPngBytes();
+      if (_draft != null) {
+        if (_savedSignature == null) {
+          _draft!.state.remove('signature');
+        } else {
+          _draft!.state['signature'] = base64Encode(_savedSignature!);
+        }
+        try {
+          await _draft!.persist();
+        } catch (_) {
+          if (mounted) {
+            setState(
+              () => _draftError =
+                  'No se pudo conservar la firma. Vuelva a intentarlo antes de enviar.',
+            );
+          }
+        }
+      }
+      if (mounted) setState(() {});
+    }
   }
 
   Future<void> _generarYEnviar() async {
@@ -123,21 +365,21 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
       _estadoEnvio = 'Registrando la orden...';
     });
     try {
-      final creada = await ApiService.reservarOrdenEscolta(
-        token: token,
-        fecha: _fecha,
-        empresa: _empresa.text.trim(),
-        placaCamabaja: _placaCamabaja.text.trim(),
-        placaEscolta: _placaEscolta.text.trim(),
-        nombreEscolta: _escolta.text.trim(),
-        observaciones: _observaciones.text.trim(),
-        viajes: _viajes.map((viaje) => viaje.toMap()).toList(),
+      await _captureDraft();
+      final result = await _draft!.save(token, confirmar: true);
+      if (result['estado'] != 'CONFIRMADA') {
+        throw StateError('Borrador recuperado. Revise y confirme nuevamente.');
+      }
+      final creada = OrdenEscoltaCreada(
+        id: result['id'],
+        consecutivo: result['consecutivo'],
+        codigoOrden: result['codigoOrden'],
       );
       if (mounted) setState(() => _estadoEnvio = 'Generando el PDF firmado...');
-      final firma = await _firma.toPngBytes();
+      final firma = _savedSignature ?? await _firma.toPngBytes();
       if (firma == null) throw Exception('No fue posible generar la firma.');
       final pdf = await _buildPdf(
-        consecutivo: creada.consecutivo,
+        consecutivo: creada.numeroVisible,
         firma: firma,
       );
       if (mounted) setState(() => _estadoEnvio = 'Guardando el PDF...');
@@ -149,6 +391,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
       if (!mounted) return;
       final resumen = _OrdenResumen(
         consecutivo: creada.consecutivo,
+        numeroVisible: creada.numeroVisible,
         fecha: _fecha,
         empresa: _empresa.text.trim(),
         placaCamabaja: _placaCamabaja.text.trim(),
@@ -158,6 +401,8 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
         firma: firma,
         pdf: pdf,
       );
+      await _draft!.finish();
+      if (!mounted) return;
       _limpiarFormulario();
       await Navigator.of(context).push(
         MaterialPageRoute(
@@ -166,6 +411,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
       );
     } catch (error) {
       if (mounted) {
+        setState(() => _draftError = error.toString());
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('No se pudo enviar la orden: $error')),
         );
@@ -181,6 +427,10 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
   }
 
   void _limpiarFormulario() {
+    _savedSignature = null;
+    _restoredClient = null;
+    _clienteSeleccionado = null;
+    _vehiculoSeleccionado = null;
     _empresa.clear();
     _placaCamabaja.clear();
     _placaEscolta.clear();
@@ -199,7 +449,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
   }
 
   Future<Uint8List> _buildPdf({
-    required int consecutivo,
+    required String consecutivo,
     required Uint8List firma,
   }) async {
     final regular = pw.Font.ttf(
@@ -316,7 +566,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
   }
 
   pw.Widget _pdfHeader(
-    int consecutivo,
+    String consecutivo,
     pw.ImageProvider logoImage,
   ) => pw.Column(
     children: [
@@ -342,8 +592,8 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
                   pw.SizedBox(height: 1),
                   pw.Image(
                     logoImage,
-                    width: 150,
-                    height: 63,
+                    width: 175,
+                    height: 52,
                     fit: pw.BoxFit.contain,
                   ),
                   pw.Text(
@@ -400,7 +650,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
                       ),
                     ),
                     pw.Text(
-                      'No. ${consecutivo.toString().padLeft(5, '0')}',
+                      'No. $consecutivo',
                       style: pw.TextStyle(
                         fontSize: 12,
                         fontWeight: pw.FontWeight.bold,
@@ -455,85 +705,191 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Nueva orden de escolta')),
-      body: SafeArea(
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-            children: [
-              Text(
-                'Datos de la orden',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 10),
-              _dateField(),
-              _field(_empresa, 'Empresa o cliente', required: true),
-              _field(
-                _placaCamabaja,
-                'Placa de camabaja',
-                required: true,
-                upper: true,
-              ),
-              _field(_placaEscolta, 'Placa de escolta', upper: true),
-              _field(_escolta, 'Nombre del escolta'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Viajes autorizados',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: _enviando
-                        ? null
-                        : () => setState(
-                            () => _viajes.add(_TrayectoControllers()),
-                          ),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Agregar viaje'),
-                  ),
-                ],
-              ),
-              Text(
-                'Agregue un viaje a la vez. La orden puede continuar en nuevas paginas.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 8),
-              ..._viajes.asMap().entries.map(
-                (entry) => _viajeEditor(entry.key, entry.value),
-              ),
-              _field(_observaciones, 'Observaciones', maxLines: 3),
-              const SizedBox(height: 12),
-              FirmaCard(
-                firmada: !_firma.isEmpty,
-                enabled: !_enviando,
-                onPressed: _abrirFirma,
-              ),
-              const SizedBox(height: 10),
-              Tooltip(
-                message:
-                    'Genera el PDF firmado, registra la orden y la envía al correo configurado.',
-                child: FilledButton.icon(
-                  onPressed: _enviando ? null : _confirmar,
-                  icon: _enviando
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.send_outlined),
-                  label: Text(
-                    _enviando ? _estadoEnvio : 'Generar y enviar orden',
-                  ),
-                ),
-              ),
-            ],
-          ),
+      appBar: AppBar(
+        title: Text(
+          widget.clientOrderId == null
+              ? 'Nueva orden de escolta'
+              : 'Continuar orden de escolta',
         ),
       ),
+      body: _restoring
+          ? const Center(child: CircularProgressIndicator())
+          : SafeArea(
+              child: Form(
+                key: _formKey,
+                onChanged: () {
+                  _captureDraft().catchError((_) {});
+                },
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                  children: [
+                    Text(
+                      'Datos de la orden',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 10),
+                    _dateField(),
+                    _clienteField(),
+                    if (_clienteSeleccionado != null) _vehiculoField(),
+                    _field(
+                      _placaCamabaja,
+                      'Placa de camabaja',
+                      required: true,
+                      upper: true,
+                    ),
+                    if (context.read<AuthProvider>().user?.isAdmin == true) ...[
+                      _field(_placaEscolta, 'Placa de escolta', upper: true),
+                      _field(_escolta, 'Nombre del escolta'),
+                    ] else ...[
+                      if (_locked)
+                        Text(
+                          'Escolta: ${_escolta.text} · ${_placaEscolta.text}',
+                        )
+                      else if (_contactoEscolta != null) ...[
+                        Text('Escolta: ${_contactoEscolta!.nombre}'),
+                        DropdownButtonFormField<String>(
+                          key: ValueKey(
+                            '${_contactoEscolta!.placas.join(',')}:${_placaEscolta.text}',
+                          ),
+                          initialValue:
+                              _contactoEscolta!.placas.contains(
+                                _placaEscolta.text,
+                              )
+                              ? _placaEscolta.text
+                              : null,
+                          decoration: const InputDecoration(
+                            labelText: 'Su vehículo escolta',
+                          ),
+                          items: _contactoEscolta!.placas
+                              .map(
+                                (p) =>
+                                    DropdownMenuItem(value: p, child: Text(p)),
+                              )
+                              .toList(),
+                          validator: (p) => p == null
+                              ? 'Seleccione un vehículo asignado a su usuario.'
+                              : null,
+                          onChanged: (p) {
+                            setState(() {
+                              _placaEscolta.text = p ?? '';
+                              _escolta.text = _contactoEscolta!.nombre;
+                            });
+                            _captureDraft();
+                          },
+                        ),
+                        if (_contactoEscolta!.placas.isEmpty)
+                          const Text(
+                            'Su usuario aún no tiene vehículos asignados. Administración puede agregarlos en Usuarios.',
+                          ),
+                      ] else if (_contactoError == null)
+                        const LinearProgressIndicator(),
+                      if (_contactoError != null) ...[
+                        Text(_contactoError!),
+                        TextButton(
+                          onPressed: _loadContacto,
+                          child: const Text('Reintentar vehículos'),
+                        ),
+                      ],
+                    ],
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Viajes autorizados',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: _locked
+                              ? null
+                              : () => setState(() {
+                                  _viajes.add(_TrayectoControllers());
+                                  _captureDraft().catchError((_) {});
+                                }),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Agregar viaje'),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      'Agregue un viaje a la vez. La orden puede continuar en nuevas paginas.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    ..._viajes.asMap().entries.map(
+                      (entry) => _viajeEditor(entry.key, entry.value),
+                    ),
+                    _field(_observaciones, 'Observaciones', maxLines: 3),
+                    if (_draftError != null)
+                      Text(
+                        _draftError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    if (_draft?.pending == true)
+                      const Text(
+                        'Hay un guardado pendiente. Reintente antes de editar.',
+                      ),
+                    if (_draft?.confirmed == true)
+                      const Text(
+                        'Orden confirmada. Se conservan sus datos y firma; puede recuperar el PDF.',
+                      ),
+                    OutlinedButton.icon(
+                      onPressed:
+                          _enviando || _draft == null || _draft!.confirmed
+                          ? null
+                          : _saveDraft,
+                      icon: const Icon(Icons.save_outlined),
+                      label: Text(
+                        _draft?.pending == true
+                            ? 'Recuperar guardado pendiente'
+                            : 'Guardar borrador',
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: _enviando || _draft == null
+                          ? null
+                          : _recoverServer,
+                      child: const Text('Recuperar versión del servidor'),
+                    ),
+                    FirmaCard(
+                      firmada: _firma.isNotEmpty || _savedSignature != null,
+                      enabled:
+                          !_enviando &&
+                          !(_draft?.confirmed == true &&
+                              _savedSignature != null),
+                      onPressed: _abrirFirma,
+                    ),
+                    const SizedBox(height: 10),
+                    Tooltip(
+                      message:
+                          'Genera el PDF firmado, registra la orden y la envía al correo configurado.',
+                      child: FilledButton.icon(
+                        onPressed: _enviando || _draft == null
+                            ? null
+                            : _confirmar,
+                        icon: _enviando
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.send_outlined),
+                        label: Text(
+                          _enviando ? _estadoEnvio : 'Generar y enviar orden',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 
@@ -542,16 +898,186 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
     title: const Text('Fecha de la orden'),
     subtitle: Text(DateFormat('dd/MM/yyyy').format(_fecha)),
     trailing: const Icon(Icons.calendar_today_outlined),
-    onTap: () async {
-      final date = await showDatePicker(
-        context: context,
-        firstDate: DateTime(2020),
-        lastDate: DateTime(2100),
-        initialDate: _fecha,
+    onTap: _locked
+        ? null
+        : () async {
+            final date = await showDatePicker(
+              context: context,
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2100),
+              initialDate: _fecha,
+            );
+            if (date != null && mounted) {
+              setState(() => _fecha = date);
+              await _captureDraft();
+            }
+          },
+  );
+
+  Widget _clienteField() => AnimatedBuilder(
+    animation: _clientesProvider,
+    builder: (context, _) {
+      if (_clientesProvider.loading) return const LinearProgressIndicator();
+      if (_clientesProvider.error != null) {
+        return Column(
+          children: [
+            Text(
+              _clientesProvider.error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+            TextButton(
+              onPressed: _clientesProvider.load,
+              child: const Text('Reintentar carga de clientes'),
+            ),
+          ],
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_clientesProvider.clientes.isEmpty)
+            const Text(
+              'No hay clientes registrados. Administración debe crear uno para completar la orden.',
+            ),
+          DropdownButtonFormField<Cliente>(
+            key: ValueKey(_clienteSeleccionado?.id),
+            initialValue: _clienteSeleccionado,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Empresa o cliente',
+              border: OutlineInputBorder(),
+            ),
+            items: _clientesProvider.clientes
+                .map(
+                  (c) => DropdownMenuItem(
+                    value: c,
+                    child: Text('${c.nombre} · ${c.documento}'),
+                  ),
+                )
+                .toList(),
+            validator: (v) =>
+                v == null ? 'Seleccione una empresa o cliente' : null,
+            onChanged: _locked
+                ? null
+                : (c) {
+                    setState(() {
+                      _clienteSeleccionado = c;
+                      _restoredClient = c?.id;
+                      _empresa.text = c?.nombre ?? '';
+                      _vehiculoSeleccionado = null;
+                      _placaCamabaja.clear();
+                    });
+                    _captureDraft().catchError((_) {});
+                  },
+          ),
+          Wrap(
+            children: [
+              if (!ModuleAccess.soloOrdenes(context.read<AuthProvider>().user))
+                TextButton.icon(
+                  onPressed: _locked ? null : _crearCliente,
+                  icon: const Icon(Icons.add_business),
+                  label: const Text('Crear cliente'),
+                ),
+              TextButton.icon(
+                onPressed: _locked ? null : _clientesProvider.load,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Actualizar clientes'),
+              ),
+              if (_clienteSeleccionado != null &&
+                  !ModuleAccess.soloOrdenes(context.read<AuthProvider>().user))
+                TextButton.icon(
+                  onPressed: _locked ? null : _vincularVehiculo,
+                  icon: const Icon(Icons.add_link),
+                  label: const Text('Vincular vehículo al cliente'),
+                ),
+            ],
+          ),
+        ],
       );
-      if (date != null) setState(() => _fecha = date);
     },
   );
+
+  Future<void> _crearCliente() async {
+    final token = context.read<AuthProvider>().user?.apiToken;
+    if (token == null) return;
+    final cliente = await showDialog<Cliente>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => CrearClienteDialog(token: token),
+    );
+    if (cliente == null || !mounted) return;
+    _restoredClient = cliente.id;
+    _empresa.text = cliente.nombre;
+    _vehiculoSeleccionado = null;
+    await _clientesProvider.load();
+    if (!mounted) return;
+    _restoreClient();
+    await _captureDraft();
+  }
+
+  Future<void> _vincularVehiculo() async {
+    final cliente = _clienteSeleccionado;
+    final token = context.read<AuthProvider>().user?.apiToken;
+    if (cliente == null || token == null) return;
+    final actualizado = await showDialog<bool>(
+      context: context,
+      builder: (_) => VincularVehiculoDialog(
+        token: token,
+        clienteId: cliente.id,
+        nombre: cliente.nombre,
+      ),
+    );
+    if (actualizado != true || !mounted) return;
+    _restoredClient = cliente.id;
+    await _clientesProvider.load();
+    if (mounted) _restoreClient();
+  }
+
+  Widget _vehiculoField() {
+    final vehiculos = _clienteSeleccionado!.vehiculos
+        .where((v) => v.estado != 'inactive')
+        .toList();
+    if (vehiculos.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          'Este cliente todavía no tiene vehículos de carga vinculados. La placa escrita en la orden se guarda en esa orden; no crea una asociación permanente con el cliente.',
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 10),
+      child: DropdownButtonFormField<String>(
+        key: ValueKey(_vehiculoSeleccionado),
+        initialValue: _vehiculoSeleccionado,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Vehículo asociado',
+          border: OutlineInputBorder(),
+        ),
+        items: vehiculos
+            .map(
+              (v) =>
+                  DropdownMenuItem(value: v.numPlaca, child: Text(v.numPlaca)),
+            )
+            .toList(),
+        onChanged: _locked
+            ? null
+            : (v) {
+                setState(() {
+                  _vehiculoSeleccionado = v;
+                  _placaCamabaja.text = v ?? '';
+                });
+                _captureDraft().catchError((_) {});
+              },
+        hint: Text(
+          vehiculos.isEmpty
+              ? 'Este cliente no tiene vehículos asociados'
+              : 'Seleccione un vehículo',
+        ),
+      ),
+    );
+  }
 
   Widget _viajeEditor(int index, _TrayectoControllers viaje) => Card(
     margin: const EdgeInsets.only(bottom: 10),
@@ -567,14 +1093,17 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const Spacer(),
-              if (_viajes.length > 1)
+              if (_viajes.length > 1 &&
+                  (_draft?.state['version'] ?? 0) == 0 &&
+                  _draft?.pending != true)
                 IconButton(
                   tooltip: 'Eliminar viaje',
-                  onPressed: _enviando
+                  onPressed: _locked
                       ? null
                       : () => setState(() {
                           viaje.dispose();
                           _viajes.removeAt(index);
+                          _captureDraft().catchError((_) {});
                         }),
                   icon: const Icon(Icons.remove_circle_outline),
                 ),
@@ -597,6 +1126,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
     child: TextFormField(
+      enabled: !_locked,
       controller: controller,
       textCapitalization: upper
           ? TextCapitalization.characters
@@ -616,6 +1146,9 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
 }
 
 class _TrayectoControllers {
+  final String clientId;
+  _TrayectoControllers({String? clientId})
+    : clientId = clientId ?? const Uuid().v4();
   final maquina = TextEditingController();
   final origen = TextEditingController();
   final destino = TextEditingController();
@@ -624,6 +1157,7 @@ class _TrayectoControllers {
       origen.text.trim().isNotEmpty &&
       destino.text.trim().isNotEmpty;
   Map<String, String> toMap() => {
+    'clientItemId': clientId,
     'maquina': maquina.text.trim(),
     'origen': origen.text.trim(),
     'destino': destino.text.trim(),
@@ -636,6 +1170,7 @@ class _TrayectoControllers {
 }
 
 class _OrdenResumen {
+  final String numeroVisible;
   final int consecutivo;
   final DateTime fecha;
   final String empresa;
@@ -646,6 +1181,7 @@ class _OrdenResumen {
   final Uint8List firma;
   final Uint8List pdf;
   const _OrdenResumen({
+    required this.numeroVisible,
     required this.consecutivo,
     required this.fecha,
     required this.empresa,
@@ -671,7 +1207,7 @@ class _OrdenEnviadaScreen extends StatelessWidget {
         const Icon(Icons.mark_email_read_outlined, size: 56),
         const SizedBox(height: 12),
         Text(
-          'Orden No. ${resumen.consecutivo.toString().padLeft(5, '0')}',
+          'Orden No. ${resumen.numeroVisible}',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.headlineSmall,
         ),
@@ -679,6 +1215,14 @@ class _OrdenEnviadaScreen extends StatelessWidget {
         const Text(
           'Enviada a transportegutierrezremesas@gmail.com',
           textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 22),
+        CompartirOrdenWhatsapp(
+          pdf: resumen.pdf,
+          nombreArchivo: 'orden_escolta_${resumen.numeroVisible}.pdf',
+          automatico: true,
+          mensaje:
+              'Orden de escolta No. ${resumen.numeroVisible}\nFecha: ${DateFormat('dd/MM/yyyy').format(resumen.fecha)}\nCliente: ${resumen.empresa}\nCamabaja: ${resumen.placaCamabaja}\nEscolta: ${resumen.escolta}\nPlaca escolta: ${resumen.placaEscolta}\n${resumen.viajes.asMap().entries.map((e) => 'Viaje ${e.key + 1}: ${e.value['maquina']} · ${e.value['origen']} → ${e.value['destino']}').join('\n')}',
         ),
         const SizedBox(height: 22),
         Text('Vista previa', style: Theme.of(context).textTheme.titleMedium),

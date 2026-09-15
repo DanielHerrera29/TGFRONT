@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../models/app_user.dart';
 import '../models/app_settings.dart';
+import '../../services/api_service.dart';
 
 class LocalStore extends ChangeNotifier {
   AppUser? _currentUser;
@@ -13,11 +14,13 @@ class LocalStore extends ChangeNotifier {
   bool get simulation => _settings?.simulacion == 'S';
 
   void setSession(AppUser user) {
+    ApiService.sessionToken = user.apiToken;
     _currentUser = user;
     notifyListeners();
   }
 
   void clearSession() {
+    ApiService.sessionToken = null;
     _currentUser = null;
     notifyListeners();
   }

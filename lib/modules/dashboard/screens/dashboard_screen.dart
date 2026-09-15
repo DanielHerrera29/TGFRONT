@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/config/module_access.dart';
+import '../../ordenes_escolta/screens/ordenes_escolta_screen.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../manifiestos/providers/manifiestos_list_provider.dart';
 import '../../remesas/providers/remesas_list_provider.dart';
@@ -27,6 +29,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _refresh() async {
+    if (!mounted ||
+        ModuleAccess.soloOrdenes(context.read<AuthProvider>().user)) {
+      return;
+    }
     await Future.wait([
       context.read<SettingsProvider>().load(),
       context.read<RemesasListProvider>().load(),
@@ -37,6 +43,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    if (ModuleAccess.soloOrdenes(auth.user)) {
+      return const OrdenesEscoltaScreen();
+    }
     final remesas = context.watch<RemesasListProvider>();
     final manifiestos = context.watch<ManifiestosListProvider>();
     final settings = context.watch<SettingsProvider>();

@@ -6,6 +6,8 @@ import '../../../data/repositories/user_repository.dart';
 import '../../../services/api_service.dart';
 import '../providers/auth_provider.dart';
 import 'register_user_screen.dart';
+import 'vehiculos_usuario_screen.dart';
+import '../../../services/contacto_escolta.dart';
 
 class ManageUsersScreen extends StatefulWidget {
   const ManageUsersScreen({super.key});
@@ -121,10 +123,9 @@ class _EditarUsuarioScreen extends StatefulWidget {
 class _EditarUsuarioScreenState extends State<_EditarUsuarioScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nombre;
+  late final TextEditingController _whatsapp;
   late final TextEditingController _usuarioRndc;
   late final TextEditingController _claveRndc;
-  late final TextEditingController _correo;
-  late final TextEditingController _claveApp;
   late UserRole _role;
   late bool _active;
   bool _guardando = false;
@@ -136,14 +137,13 @@ class _EditarUsuarioScreenState extends State<_EditarUsuarioScreen> {
     _nombre = TextEditingController(
       text: widget.user['name']?.toString() ?? '',
     );
+    _whatsapp = TextEditingController(
+      text: widget.user['whatsapp']?.toString() ?? '',
+    );
     _usuarioRndc = TextEditingController(
       text: widget.user['email']?.toString() ?? '',
     );
     _claveRndc = TextEditingController();
-    _correo = TextEditingController(
-      text: widget.user['correo_email']?.toString() ?? '',
-    );
-    _claveApp = TextEditingController();
     _role = UserRole.fromString(widget.user['role']?.toString() ?? 'operator');
     _active = widget.user['active'] != false;
   }
@@ -151,41 +151,26 @@ class _EditarUsuarioScreenState extends State<_EditarUsuarioScreen> {
   @override
   void dispose() {
     _nombre.dispose();
+    _whatsapp.dispose();
     _usuarioRndc.dispose();
     _claveRndc.dispose();
-    _correo.dispose();
-    _claveApp.dispose();
     super.dispose();
   }
 
   Future<void> _guardar() async {
+    if (_guardando) return;
     if (!_formKey.currentState!.validate()) return;
-    final correoOriginal = widget.user['correo_email']?.toString() ?? '';
-    final cambiaCorreo =
-        _correo.text.trim() != correoOriginal || _claveApp.text.isNotEmpty;
-    if (cambiaCorreo &&
-        (_correo.text.trim().isEmpty || _claveApp.text.isEmpty)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Para cambiar correo, complete correo y contrasena de aplicacion.',
-          ),
-        ),
-      );
-      return;
-    }
     setState(() => _guardando = true);
     try {
       await ApiService.actualizarUsuario(
         token: widget.token,
         usuarioId: widget.user['id'].toString(),
         name: _nombre.text.trim(),
+        whatsapp: normalizarCelular(_whatsapp.text),
         email: _usuarioRndc.text.trim(),
         password: _claveRndc.text.isEmpty ? null : _claveRndc.text,
         role: _role.name,
         active: _active,
-        correoEmail: cambiaCorreo ? _correo.text.trim() : null,
-        contrasenaApp: cambiaCorreo ? _claveApp.text : null,
       );
       _guardado = true;
       if (mounted) Navigator.of(context).pop(true);
@@ -210,6 +195,30 @@ class _EditarUsuarioScreenState extends State<_EditarUsuarioScreen> {
           padding: const EdgeInsets.fromLTRB(16, 20, 16, 112),
           children: [
             TextFormField(
+              controller: _whatsapp,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Celular / WhatsApp del usuario',
+                helperText:
+                    'Dato de contacto; no determina la cuenta que comparte.',
+              ),
+              validator: validarCelular,
+            ),
+            TextButton.icon(
+              onPressed: _guardando
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => VehiculosUsuarioScreen(
+                          usuario: widget.user['id'].toString(),
+                          nombre: widget.user['name'].toString(),
+                        ),
+                      ),
+                    ),
+              icon: const Icon(Icons.directions_car_outlined),
+              label: const Text('Vehículos escolta y destinatario WhatsApp'),
+            ),
+            TextFormField(
               controller: _nombre,
               decoration: const InputDecoration(labelText: 'Nombre'),
               validator: _required('Ingrese el nombre'),
@@ -217,34 +226,19 @@ class _EditarUsuarioScreenState extends State<_EditarUsuarioScreen> {
             const SizedBox(height: 10),
             TextFormField(
               controller: _usuarioRndc,
-              decoration: const InputDecoration(labelText: 'Usuario RNDC'),
-              validator: _required('Ingrese el usuario RNDC'),
+              decoration: const InputDecoration(labelText: 'Usuario de acceso'),
+              validator: _required('Ingrese el usuario de acceso'),
             ),
             const SizedBox(height: 10),
             TextFormField(
               controller: _claveRndc,
               obscureText: true,
               decoration: const InputDecoration(
-                labelText: 'Nueva clave RNDC',
+                labelText: 'Nueva contraseña de acceso',
                 helperText: 'Dejela vacia para conservarla.',
               ),
             ),
             const Divider(height: 28),
-            TextFormField(
-              controller: _correo,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Correo remitente'),
-            ),
-            const SizedBox(height: 10),
-            TextFormField(
-              controller: _claveApp,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Nueva contrasena de aplicacion Gmail',
-                helperText: 'Dejela vacia para conservar la actual.',
-              ),
-            ),
-            const SizedBox(height: 10),
             DropdownButtonFormField<UserRole>(
               initialValue: _role,
               decoration: const InputDecoration(labelText: 'Rol'),

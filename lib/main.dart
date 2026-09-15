@@ -27,7 +27,6 @@ Future<void> main() async {
 
   final store = LocalStore();
   final settingsProvider = SettingsProvider(store);
-  await settingsProvider.load();
 
   runApp(MainApp(store: store, settingsProvider: settingsProvider));
   FlutterNativeSplash.remove();

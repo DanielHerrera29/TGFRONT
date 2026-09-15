@@ -44,16 +44,19 @@ class AuthProvider extends ChangeNotifier {
         notifyListeners();
         return false;
       }
-      _store.setSession(AppUser(
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        password: user.password,
-        role: user.role,
-        active: user.active,
-        createdAt: user.createdAt,
-        apiToken: token,
-      ));
+      _store.setSession(
+        AppUser(
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          password: user.password,
+          role: user.role,
+          active: user.active,
+          createdAt: user.createdAt,
+          apiToken: token,
+          whatsapp: user.whatsapp,
+        ),
+      );
       _loading = false;
       notifyListeners();
       return true;
@@ -70,6 +73,7 @@ class AuthProvider extends ChangeNotifier {
     required String email,
     required String password,
     required UserRole role,
+    String? whatsapp,
   }) async {
     _loading = true;
     _error = null;
@@ -81,6 +85,7 @@ class AuthProvider extends ChangeNotifier {
         email: email,
         password: password,
         role: role,
+        whatsapp: whatsapp,
       );
       if (userId == null) {
         _error = 'El correo ya está registrado';

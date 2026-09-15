@@ -16,6 +16,7 @@ class UserRepository {
     final row = rows.first;
     return AppUser(
       id: row['id'],
+      whatsapp: row['whatsapp']?.toString(),
       name: row['name'] ?? '',
       email: row['email'],
       password: row['password'] ?? '',
@@ -32,6 +33,7 @@ class UserRepository {
     required String email,
     required String password,
     required UserRole role,
+    String? whatsapp,
   }) async {
     final existing = await SupabaseService.client
         .from('users')
@@ -41,13 +43,18 @@ class UserRepository {
 
     if (existing != null) return null;
 
-    final res = await SupabaseService.client.from('users').insert({
-      'name': name,
-      'email': email,
-      'password': password,
-      'role': role.name,
-      'active': true,
-    }).select('id').single();
+    final res = await SupabaseService.client
+        .from('users')
+        .insert({
+          'name': name,
+          'email': email,
+          'password': password,
+          'role': role.name,
+          'whatsapp': whatsapp,
+          'active': true,
+        })
+        .select('id')
+        .single();
 
     return res['id'];
   }
@@ -55,7 +62,9 @@ class UserRepository {
   Future<List<Map<String, dynamic>>> listAll() async {
     return SupabaseService.client
         .from('users')
-        .select('id, name, email, role, active, created_at, correo_email, contrasena_email_app')
+        .select(
+          'id, name, email, role, active, created_at, correo_email, whatsapp',
+        )
         .order('created_at', ascending: false);
   }
 }

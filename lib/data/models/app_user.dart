@@ -8,7 +8,7 @@ enum UserRole {
       case UserRole.admin:
         return 'Administrador';
       case UserRole.operator:
-        return 'Operador';
+        return 'Escolta / operador';
       case UserRole.auditor:
         return 'Auditor';
     }
@@ -35,6 +35,7 @@ class AppUser {
   final bool active;
   final DateTime createdAt;
   final String? apiToken;
+  final String? whatsapp;
 
   AppUser({
     required this.id,
@@ -45,9 +46,9 @@ class AppUser {
     this.active = true,
     required this.createdAt,
     this.apiToken,
+    this.whatsapp,
   });
 
   bool get isAdmin => role == UserRole.admin;
-  bool get canWrite =>
-      role == UserRole.admin || role == UserRole.operator;
+  bool get canWrite => role == UserRole.admin || role == UserRole.operator;
 }

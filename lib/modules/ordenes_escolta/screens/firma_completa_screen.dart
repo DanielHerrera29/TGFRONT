@@ -82,6 +82,7 @@ class FirmaCompletaScreen extends StatelessWidget {
 
 class FirmaCard extends StatelessWidget {
   const FirmaCard({
+    super.key,
     required this.firmada,
     required this.enabled,
     required this.onPressed,

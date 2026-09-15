@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../core/config/api_config.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../data/models/remesa.dart';
@@ -34,10 +35,23 @@ class CumplirResult {
 class OrdenEscoltaCreada {
   final String id;
   final int consecutivo;
-  const OrdenEscoltaCreada({required this.id, required this.consecutivo});
+  final String? codigoOrden;
+  String get numeroVisible =>
+      codigoOrden ?? consecutivo.toString().padLeft(5, '0');
+  const OrdenEscoltaCreada({
+    required this.id,
+    required this.consecutivo,
+    this.codigoOrden,
+  });
 }
 
 class OrdenEscoltaResumen {
+  final String? codigoOrden;
+  String get numeroVisible =>
+      codigoOrden ?? consecutivo.toString().padLeft(5, '0');
+  final String? clientOrderId;
+  final String? createdBy;
+  final String? estadoCaptura;
   final String id;
   final int consecutivo;
   final DateTime fecha;
@@ -49,7 +63,11 @@ class OrdenEscoltaResumen {
   final String? emailError;
 
   OrdenEscoltaResumen.fromJson(Map<String, dynamic> json)
-    : id = json['id']?.toString() ?? '',
+    : codigoOrden = json['codigo_orden']?.toString(),
+      clientOrderId = json['client_order_id']?.toString(),
+      createdBy = json['created_by']?.toString(),
+      estadoCaptura = json['estado_captura']?.toString(),
+      id = json['id']?.toString() ?? '',
       consecutivo = int.tryParse(json['consecutivo'].toString()) ?? 0,
       fecha =
           DateTime.tryParse(json['fecha']?.toString() ?? '') ?? DateTime.now(),
@@ -63,14 +81,113 @@ class OrdenEscoltaResumen {
       emailError = json['email_error']?.toString();
 }
 
+class AltaUsuarioRechazada implements Exception {
+  final String mensaje;
+  AltaUsuarioRechazada(this.mensaje);
+  @override
+  String toString() => mensaje;
+}
+
 class ApiService {
-  static const String _baseUrl = String.fromEnvironment(
-    'API_URL',
-    defaultValue: 'http://localhost:5116',
-  );
+  static Future<List<String>> catalogoPlacasEscolta() async {
+    final response = await _client
+        .get(
+          Uri.parse('$_baseUrl/api/ordenes-escolta/contacto/catalogo-placas'),
+        )
+        .timeout(const Duration(seconds: 20));
+    _ensureSuccess(response);
+    return List<String>.from(jsonDecode(response.body));
+  }
+
+  static Future<String> crearUsuarioConPlacas(Map<String, dynamic> data) async {
+    final response = await _client
+        .post(
+          Uri.parse('$_baseUrl/api/ordenes-escolta/contacto/usuarios'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(data),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (response.statusCode == 400 || response.statusCode == 409) {
+      final error = jsonDecode(response.body);
+      if (error is Map &&
+          (error['code'] == '22023' || error['code'] == '23505')) {
+        throw AltaUsuarioRechazada(
+          error['error']?.toString() ?? 'Revise los datos.',
+        );
+      }
+    }
+    _ensureSuccess(response);
+    return jsonDecode(response.body) as String;
+  }
+
+  static Future<Map<String, dynamic>> detalleCompartirOrden(String id) async {
+    final response = await _client
+        .get(Uri.parse('$_baseUrl/api/ordenes-escolta/$id/detalle-compartir'))
+        .timeout(const Duration(seconds: 20));
+    _ensureSuccess(response);
+    return Map<String, dynamic>.from(
+      (jsonDecode(response.body) as List).single,
+    );
+  }
+
+  static Future<Uint8List> descargarPdfOrden(String token, String id) async {
+    final url = await urlPdfOrdenEscolta(token: token, ordenId: id);
+    // La URL firmada ya autoriza la descarga; no enviar el token de la app al almacenamiento.
+    final response = await http.get(url).timeout(const Duration(seconds: 30));
+    if (response.statusCode != 200) {
+      throw StateError('No se pudo descargar el PDF.');
+    }
+    return response.bodyBytes;
+  }
+
+  static Future<Map<String, dynamic>> contactoEscolta({String? usuario}) async {
+    final uri = Uri.parse(
+      '$_baseUrl/api/ordenes-escolta/contacto',
+    ).replace(queryParameters: usuario == null ? null : {'usuario': usuario});
+    final response = await _client
+        .get(uri)
+        .timeout(const Duration(seconds: 20));
+    _ensureSuccess(response);
+    final data = jsonDecode(response.body);
+    if (data is! Map<String, dynamic>) {
+      throw StateError('Contacto no disponible.');
+    }
+    return data;
+  }
+
+  static Future<void> guardarVehiculosEscolta(
+    String usuario,
+    List<String> placas,
+  ) async {
+    final response = await _client
+        .put(
+          Uri.parse(
+            '$_baseUrl/api/ordenes-escolta/contacto/vehiculos/$usuario',
+          ),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'placas': placas}),
+        )
+        .timeout(const Duration(seconds: 20));
+    _ensureSuccess(response);
+  }
+
+  static Future<void> guardarDestinoWhatsapp(String destino) async {
+    final response = await _client
+        .put(
+          Uri.parse('$_baseUrl/api/ordenes-escolta/contacto/destino'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'destino': destino}),
+        )
+        .timeout(const Duration(seconds: 20));
+    _ensureSuccess(response);
+  }
+
+  static String? sessionToken;
+  static final http.Client _client = _SessionClient();
+  static const String _baseUrl = ApiConfig.baseUrl;
 
   static Future<String?> iniciarSesion(String email, String password) async {
-    final response = await http
+    final response = await _client
         .post(
           Uri.parse('$_baseUrl/api/sesion/iniciar'),
           headers: {'Content-Type': 'application/json'},
@@ -87,7 +204,7 @@ class ApiService {
     required String correoEmail,
     required String contrasenaApp,
   }) async {
-    final response = await http
+    final response = await _client
         .post(
           Uri.parse('$_baseUrl/api/usuarios/$usuarioId/correo'),
           headers: {
@@ -111,12 +228,13 @@ class ApiService {
     required String name,
     required String email,
     String? password,
+    String? whatsapp,
     required String role,
     required bool active,
     String? correoEmail,
     String? contrasenaApp,
   }) async {
-    final response = await http
+    final response = await _client
         .put(
           Uri.parse('$_baseUrl/api/usuarios/$usuarioId'),
           headers: {
@@ -127,6 +245,7 @@ class ApiService {
             'name': name,
             'email': email,
             'password': password,
+            'whatsapp': whatsapp,
             'role': role,
             'active': active,
             'correoEmail': correoEmail,
@@ -148,8 +267,11 @@ class ApiService {
     required String nombreEscolta,
     required String observaciones,
     required List<Map<String, String>> viajes,
+    String? clienteId,
+    String? clienteDocumentoSnapshot,
+    String? vehiculoPlacaSnapshot,
   }) async {
-    final response = await http
+    final response = await _client
         .post(
           Uri.parse('$_baseUrl/api/ordenes-escolta/reservar'),
           headers: {
@@ -164,6 +286,9 @@ class ApiService {
             'nombreEscolta': nombreEscolta,
             'observaciones': observaciones,
             'viajes': viajes,
+            'clienteId': clienteId,
+            'clienteDocumentoSnapshot': clienteDocumentoSnapshot,
+            'vehiculoPlacaSnapshot': vehiculoPlacaSnapshot,
           }),
         )
         .timeout(const Duration(seconds: 30));
@@ -180,7 +305,7 @@ class ApiService {
     required String ordenId,
     required List<int> pdf,
   }) async {
-    final response = await http
+    final response = await _client
         .post(
           Uri.parse(
             '$_baseUrl/api/ordenes-escolta/${Uri.encodeComponent(ordenId)}/enviar',
@@ -200,7 +325,7 @@ class ApiService {
   static Future<List<OrdenEscoltaResumen>> listarOrdenesEscolta(
     String token,
   ) async {
-    final response = await http
+    final response = await _client
         .get(
           Uri.parse('$_baseUrl/api/ordenes-escolta'),
           headers: {'Authorization': 'Bearer $token'},
@@ -221,7 +346,7 @@ class ApiService {
     required String token,
     required String ordenId,
   }) async {
-    final response = await http
+    final response = await _client
         .get(
           Uri.parse(
             '$_baseUrl/api/ordenes-escolta/${Uri.encodeComponent(ordenId)}/pdf',
@@ -239,7 +364,7 @@ class ApiService {
   }
 
   static Future<List<Map<String, dynamic>>> listarRemesas() async {
-    final response = await http
+    final response = await _client
         .get(Uri.parse('$_baseUrl/api/remesa'))
         .timeout(const Duration(seconds: 30));
     _ensureSuccess(response);
@@ -248,7 +373,7 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> obtenerRemesa(String id) async {
-    final response = await http
+    final response = await _client
         .get(Uri.parse('$_baseUrl/api/remesa/${Uri.encodeComponent(id)}'))
         .timeout(const Duration(seconds: 30));
     _ensureSuccess(response);
@@ -256,7 +381,7 @@ class ApiService {
   }
 
   static Future<List<Map<String, dynamic>>> listarManifiestos() async {
-    final response = await http
+    final response = await _client
         .get(Uri.parse('$_baseUrl/api/manifiesto'))
         .timeout(const Duration(seconds: 30));
     _ensureSuccess(response);
@@ -265,7 +390,7 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> obtenerManifiesto(String id) async {
-    final response = await http
+    final response = await _client
         .get(Uri.parse('$_baseUrl/api/manifiesto/${Uri.encodeComponent(id)}'))
         .timeout(const Duration(seconds: 30));
     _ensureSuccess(response);
@@ -274,8 +399,14 @@ class ApiService {
 
   static void _ensureSuccess(http.Response response) {
     if (response.statusCode >= 200 && response.statusCode < 300) return;
+    String? message;
+    try {
+      final data = jsonDecode(response.body);
+      if (data is Map && data['error'] is String) message = data['error'];
+    } catch (_) {}
     throw Exception(
-      'API ${response.statusCode}: ${response.body.isEmpty ? 'sin respuesta' : response.body}',
+      message ??
+          'No se pudo completar la operación (HTTP ${response.statusCode}).',
     );
   }
 
@@ -322,7 +453,7 @@ class ApiService {
     };
 
     try {
-      final response = await http
+      final response = await _client
           .post(
             Uri.parse('$_baseUrl/api/remesa/generar'),
             headers: {'Content-Type': 'application/json'},
@@ -350,7 +481,7 @@ class ApiService {
   }
 
   static Future<List<RemesaResumen>> remesasPendientes(String token) async {
-    final response = await http
+    final response = await _client
         .get(
           Uri.parse('$_baseUrl/api/remesa/pendientes'),
           headers: {'Content-Type': 'application/json'},
@@ -368,7 +499,7 @@ class ApiService {
     required String tipocumplido,
     String? observaciones,
   }) async {
-    final response = await http
+    final response = await _client
         .post(
           Uri.parse('$_baseUrl/api/remesa/cumplir'),
           headers: {'Content-Type': 'application/json'},
@@ -397,7 +528,7 @@ class ApiService {
     required String tipoCumplido,
     String? observaciones,
   }) async {
-    final response = await http
+    final response = await _client
         .post(
           Uri.parse('$_baseUrl/api/manifiesto/cumplir'),
           headers: {'Content-Type': 'application/json'},
@@ -454,7 +585,7 @@ class ApiService {
     try {
       debugPrint('Manifiesto payload: ${jsonEncode(body)}');
 
-      final response = await http
+      final response = await _client
           .post(
             Uri.parse('$_baseUrl/api/manifiesto/generar'),
             headers: {'Content-Type': 'application/json'},
@@ -513,7 +644,7 @@ class ApiService {
         'tipoTenedor=${vehiculo.codTipoIdTenedor}, '
         'tenedor=${vehiculo.numIdTenedor}',
       );
-      final response = await http
+      final response = await _client
           .post(
             Uri.parse('$_baseUrl/api/rndc/vehiculos'),
             headers: {'Content-Type': 'application/json'},
@@ -544,7 +675,7 @@ class ApiService {
     required String manifiestoId,
   }) async {
     try {
-      final response = await http
+      final response = await _client
           .post(
             Uri.parse('$_baseUrl/api/rndc/manifiestos/firma-status'),
             headers: {'Content-Type': 'application/json'},
@@ -571,7 +702,7 @@ class ApiService {
     required String rndcPassword,
   }) async {
     try {
-      final response = await http
+      final response = await _client
           .post(
             Uri.parse('$_baseUrl/api/rndc/manifiestos/pendientes-firma'),
             headers: {'Content-Type': 'application/json'},
@@ -595,7 +726,7 @@ class ApiService {
     required String rndcPassword,
   }) async {
     try {
-      final response = await http
+      final response = await _client
           .post(
             Uri.parse('$_baseUrl/api/rndc/vehiculos/maestro'),
             headers: {'Content-Type': 'application/json'},
@@ -775,4 +906,16 @@ class MasterDataItem {
     codigo: j['codigo']?.toString() ?? '',
     nombre: j['nombre']?.toString() ?? '',
   );
+}
+
+class _SessionClient extends http.BaseClient {
+  final http.Client _inner = http.Client();
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    final token = ApiService.sessionToken;
+    if (token != null && !request.headers.containsKey('Authorization')) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+    return _inner.send(request);
+  }
 }

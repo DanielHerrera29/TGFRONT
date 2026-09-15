@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'data/datasource/local_store.dart';
 import 'core/theme/app_theme.dart';
+import 'core/config/module_access.dart';
 import 'modules/auth/screens/login_screen.dart';
 import 'modules/auth/screens/register_user_screen.dart';
 import 'modules/auth/screens/forgot_password_screen.dart';
@@ -58,7 +59,14 @@ class _CargoDespachoAppState extends State<CargoDespachoApp> {
         final onLogin = state.matchedLocation == '/login';
         final onForgotPassword = state.matchedLocation == '/forgot-password';
         if (!loggedIn && !onLogin && !onForgotPassword) return '/login';
-        if (loggedIn && onLogin) return '/';
+        if (loggedIn &&
+            (onLogin ||
+                !ModuleAccess.permite(
+                  widget.store.currentUser,
+                  state.uri.path,
+                ))) {
+          return ModuleAccess.inicio(widget.store.currentUser);
+        }
         return null;
       },
       routes: [
@@ -79,6 +87,12 @@ class _CargoDespachoAppState extends State<CargoDespachoApp> {
         GoRoute(
           path: '/ordenes-escolta/nueva',
           builder: (_, _) => const NuevaOrdenEscoltaScreen(),
+        ),
+        GoRoute(
+          path: '/ordenes-escolta/editar/:clientOrderId',
+          builder: (_, state) => NuevaOrdenEscoltaScreen(
+            clientOrderId: state.pathParameters['clientOrderId'],
+          ),
         ),
         GoRoute(path: '/history', builder: (_, _) => const HistoryScreen()),
         GoRoute(
