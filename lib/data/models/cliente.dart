@@ -8,18 +8,40 @@ class Cliente {
   final String documento;
   final String? telefono;
   final bool activo;
+  final String? placaCarga;
+  List<String> get placasCarga => {
+    if (placaCarga != null && placaCarga!.isNotEmpty) placaCarga!,
+    ...vehiculos.where((v) => v.estado != 'inactive').map((v) => v.numPlaca),
+  }.toList();
   final List<VehiculoListItem> vehiculos;
 
-  const Cliente({required this.id, required this.tipoCliente, required this.nombre, this.razonSocial, required this.documento, this.telefono, required this.activo, this.vehiculos = const []});
+  const Cliente({
+    required this.id,
+    required this.tipoCliente,
+    required this.nombre,
+    this.razonSocial,
+    required this.documento,
+    this.telefono,
+    required this.activo,
+    this.placaCarga,
+    this.vehiculos = const [],
+  });
 
   factory Cliente.fromMap(Map<String, dynamic> m) => Cliente(
-    id: m['id'].toString(), tipoCliente: m['tipo_cliente']?.toString() ?? 'empresa',
-    nombre: m['nombre']?.toString() ?? '', razonSocial: m['razon_social']?.toString(),
-    documento: m['nit_o_documento']?.toString() ?? '', telefono: m['telefono']?.toString(),
+    id: m['id'].toString(),
+    tipoCliente: m['tipo_cliente']?.toString() ?? 'empresa',
+    nombre: m['nombre']?.toString() ?? '',
+    razonSocial: m['razon_social']?.toString(),
+    documento: m['nit_o_documento']?.toString() ?? '',
+    telefono: m['telefono']?.toString(),
     activo: m['activo'] != false,
-    vehiculos: ((m['cliente_vehiculos'] as List?) ?? const []).where((r) => (r as Map)['activo'] != false && r['vehiculos'] != null).map((r) {
-      final v = Map<String, dynamic>.from((r as Map)['vehiculos'] as Map);
-      return VehiculoListItem.fromMap(v);
-    }).toList(),
+    placaCarga: m['placa_carga']?.toString(),
+    vehiculos: ((m['cliente_vehiculos'] as List?) ?? const [])
+        .where((r) => (r as Map)['activo'] != false && r['vehiculos'] != null)
+        .map((r) {
+          final v = Map<String, dynamic>.from((r as Map)['vehiculos'] as Map);
+          return VehiculoListItem.fromMap(v);
+        })
+        .toList(),
   );
 }

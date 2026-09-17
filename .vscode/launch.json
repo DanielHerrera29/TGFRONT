@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "TEG local (API localhost:5116)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "chrome",
+      "toolArgs": [
+        "--web-hostname", "localhost",
+        "--web-port", "5173",
+        "--dart-define=API_URL=http://localhost:5116"
+      ]
+    }
+  ]
+}

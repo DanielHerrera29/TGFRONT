@@ -5,6 +5,15 @@ import 'package:transportegutierrez/data/models/cliente.dart';
 import 'package:transportegutierrez/modules/clientes/crear_cliente_dialog.dart';
 
 void main() {
+  test('la placa directa del cliente se recupera para una nueva orden', () {
+    final cliente = Cliente.fromMap({
+      'id': 'fixture',
+      'nombre': 'Cliente',
+      'placa_carga': 'XYZ987',
+      'cliente_vehiculos': [],
+    });
+    expect(cliente.placasCarga, ['XYZ987']);
+  });
   testWidgets(
     'cliente valida campos y bloquea doble envío en pantalla compacta',
     (tester) async {
@@ -26,6 +35,7 @@ void main() {
                     crear: (datos) {
                       calls++;
                       expect(datos['nombre'], 'Empresa prueba');
+                      expect(datos['placa'], 'ABC123');
                       return completer.future;
                     },
                   ),
@@ -47,6 +57,10 @@ void main() {
         'Empresa prueba',
       );
       await tester.enterText(find.byType(TextFormField).at(1), '900123456');
+      await tester.enterText(
+        find.byKey(const ValueKey('placa-cliente')),
+        'abc123',
+      );
       await tester.tap(find.text('Crear cliente'));
       await tester.pump();
       await tester.tap(find.text('Guardando…'));

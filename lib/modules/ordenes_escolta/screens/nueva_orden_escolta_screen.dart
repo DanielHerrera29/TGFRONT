@@ -18,7 +18,7 @@ import '../../../data/models/cliente.dart';
 import '../../../core/config/module_access.dart';
 import '../../clientes/providers/clientes_provider.dart';
 import '../../clientes/crear_cliente_dialog.dart';
-import '../../clientes/vincular_vehiculo_dialog.dart';
+
 import '../../auth/providers/auth_provider.dart';
 import 'firma_completa_screen.dart';
 
@@ -964,8 +964,10 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
                       _clienteSeleccionado = c;
                       _restoredClient = c?.id;
                       _empresa.text = c?.nombre ?? '';
-                      _vehiculoSeleccionado = null;
-                      _placaCamabaja.clear();
+                      _vehiculoSeleccionado = c?.placasCarga.length == 1
+                          ? c!.placasCarga.single
+                          : null;
+                      _placaCamabaja.text = _vehiculoSeleccionado ?? '';
                     });
                     _captureDraft().catchError((_) {});
                   },
@@ -983,13 +985,6 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
                 icon: const Icon(Icons.refresh),
                 label: const Text('Actualizar clientes'),
               ),
-              if (_clienteSeleccionado != null &&
-                  !ModuleAccess.soloOrdenes(context.read<AuthProvider>().user))
-                TextButton.icon(
-                  onPressed: _locked ? null : _vincularVehiculo,
-                  icon: const Icon(Icons.add_link),
-                  label: const Text('Vincular vehículo al cliente'),
-                ),
             ],
           ),
         ],
@@ -1008,35 +1003,16 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
     if (cliente == null || !mounted) return;
     _restoredClient = cliente.id;
     _empresa.text = cliente.nombre;
-    _vehiculoSeleccionado = null;
+    _placaCamabaja.text = cliente.placaCarga ?? '';
+    _vehiculoSeleccionado = cliente.placaCarga;
     await _clientesProvider.load();
     if (!mounted) return;
     _restoreClient();
     await _captureDraft();
   }
 
-  Future<void> _vincularVehiculo() async {
-    final cliente = _clienteSeleccionado;
-    final token = context.read<AuthProvider>().user?.apiToken;
-    if (cliente == null || token == null) return;
-    final actualizado = await showDialog<bool>(
-      context: context,
-      builder: (_) => VincularVehiculoDialog(
-        token: token,
-        clienteId: cliente.id,
-        nombre: cliente.nombre,
-      ),
-    );
-    if (actualizado != true || !mounted) return;
-    _restoredClient = cliente.id;
-    await _clientesProvider.load();
-    if (mounted) _restoreClient();
-  }
-
   Widget _vehiculoField() {
-    final vehiculos = _clienteSeleccionado!.vehiculos
-        .where((v) => v.estado != 'inactive')
-        .toList();
+    final vehiculos = _clienteSeleccionado!.placasCarga;
     if (vehiculos.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 12),
@@ -1056,10 +1032,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
           border: OutlineInputBorder(),
         ),
         items: vehiculos
-            .map(
-              (v) =>
-                  DropdownMenuItem(value: v.numPlaca, child: Text(v.numPlaca)),
-            )
+            .map((v) => DropdownMenuItem(value: v, child: Text(v)))
             .toList(),
         onChanged: _locked
             ? null

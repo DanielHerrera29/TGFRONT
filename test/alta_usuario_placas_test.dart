@@ -44,7 +44,6 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             home: RegisterUserScreen(
-              cargarPlacas: () async => ['ABC123', 'MNB124', 'LLO001'],
               crearUsuario: (data) {
                 requests.add(Map.from(data));
                 return response.future;
@@ -62,10 +61,27 @@ void main() {
           await tester.ensureVisible(find.byType(SwitchListTile));
           await tester.tap(find.byType(SwitchListTile));
           await tester.pumpAndSettle();
-          await tester.ensureVisible(find.text('Elegir placa del catálogo'));
-          await tester.tap(find.text('Elegir placa del catálogo'));
+          await tester.ensureVisible(
+            find.byKey(const ValueKey('placa-usuario')),
+          );
+          await tester.enterText(
+            find.byKey(const ValueKey('placa-usuario')),
+            'xyz987',
+          );
+          await tester.tap(find.text('Agregar placa'));
           await tester.pumpAndSettle();
-          await tester.tap(find.text('ABC123').last);
+          await tester.enterText(
+            find.byKey(const ValueKey('placa-usuario')),
+            'XYZ987',
+          );
+          await tester.tap(find.text('Agregar placa'));
+          await tester.pumpAndSettle();
+          expect(find.text('Esta placa ya está agregada.'), findsOneWidget);
+          await tester.enterText(
+            find.byKey(const ValueKey('placa-usuario')),
+            'mnb124',
+          );
+          await tester.tap(find.text('Agregar placa'));
           await tester.pumpAndSettle();
         }
         await tester.ensureVisible(find.text('Crear usuario'));
@@ -73,7 +89,10 @@ void main() {
         await tester.tap(find.text('Crear usuario'));
         await tester.pump();
         expect(requests.length, 1);
-        expect(requests.single['placas'], enlazar ? ['ABC123'] : isEmpty);
+        expect(
+          requests.single['placas'],
+          enlazar ? ['XYZ987', 'MNB124'] : isEmpty,
+        );
         response.completeError(TimeoutException('fixture'));
         await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('Crear usuario'));

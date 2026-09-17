@@ -7,9 +7,8 @@ import '../../../services/api_service.dart';
 import 'package:uuid/uuid.dart';
 
 class RegisterUserScreen extends StatefulWidget {
-  final Future<List<String>> Function()? cargarPlacas;
   final Future<String> Function(Map<String, dynamic>)? crearUsuario;
-  const RegisterUserScreen({super.key, this.cargarPlacas, this.crearUsuario});
+  const RegisterUserScreen({super.key, this.crearUsuario});
 
   @override
   State<RegisterUserScreen> createState() => _RegisterUserScreenState();
@@ -27,33 +26,38 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
   bool _obscureConfirm = true;
   final String _altaId = const Uuid().v4();
   final Set<String> _placas = {};
-  List<String> _catalogo = [];
+  final _placaCtrl = TextEditingController();
   bool _enlazar = false;
-  bool _cargandoPlacas = false;
+  String? _placaError;
   bool _creando = false;
   String? _altaError;
   Map<String, dynamic>? _solicitud;
 
-  Future<void> _cargarPlacas() async {
-    setState(() {
-      _cargandoPlacas = true;
-      _altaError = null;
-    });
-    try {
-      final placas =
-          await (widget.cargarPlacas?.call() ??
-              ApiService.catalogoPlacasEscolta());
-      if (mounted) setState(() => _catalogo = placas);
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () => _altaError =
-              'No se pudo cargar el catálogo. Reintente o cree el usuario sin enlazar placas.',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _cargandoPlacas = false);
+  bool _agregarPlaca() {
+    final placa = _placaCtrl.text.trim().toUpperCase();
+    if (!RegExp(r'^[A-Z]{3}[0-9]{3}$').hasMatch(placa)) {
+      setState(
+        () => _placaError =
+            'Escriba tres letras y tres números. Ejemplo: ABC123.',
+      );
+      return false;
     }
+    if (_placas.contains(placa)) {
+      setState(() => _placaError = 'Esta placa ya está agregada.');
+      return false;
+    }
+    if (_placas.length >= 30) {
+      setState(
+        () => _placaError = 'Puede agregar hasta 30 placas por usuario.',
+      );
+      return false;
+    }
+    setState(() {
+      _placas.add(placa);
+      _placaCtrl.clear();
+      _placaError = null;
+    });
+    return true;
   }
 
   @override
@@ -63,6 +67,7 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
     _emailCtrl.dispose();
     _passCtrl.dispose();
     _confirmCtrl.dispose();
+    _placaCtrl.dispose();
     super.dispose();
   }
 
@@ -181,31 +186,32 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
                     ? null
                     : (value) {
                         setState(() => _enlazar = value);
-                        if (value && _catalogo.isEmpty) _cargarPlacas();
                       },
               ),
               if (_enlazar) ...[
-                if (_cargandoPlacas) const LinearProgressIndicator(),
-                if (!_cargandoPlacas && _catalogo.isEmpty)
-                  TextButton(
-                    onPressed: _cargarPlacas,
-                    child: const Text('Cargar catálogo de placas'),
+                TextFormField(
+                  key: const ValueKey('placa-usuario'),
+                  controller: _placaCtrl,
+                  enabled: _solicitud == null,
+                  textCapitalization: TextCapitalization.characters,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) {
+                    if (_solicitud == null) _agregarPlaca();
+                  },
+                  decoration: InputDecoration(
+                    labelText: 'Escriba una placa',
+                    hintText: 'ABC123',
+                    errorText: _placaError,
+                    border: const OutlineInputBorder(),
                   ),
-                DropdownButtonFormField<String>(
-                  key: ValueKey(_placas.join(',')),
-                  decoration: const InputDecoration(
-                    labelText: 'Elegir placa del catálogo',
-                  ),
-                  items: _catalogo
-                      .where((p) => !_placas.contains(p))
-                      .map((p) => DropdownMenuItem(value: p, child: Text(p)))
-                      .toList(),
-                  onChanged: _solicitud != null
-                      ? null
-                      : (p) {
-                          if (p != null) setState(() => _placas.add(p));
-                        },
                 ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _solicitud == null ? _agregarPlaca : null,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Agregar placa'),
+                ),
+                const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
                   children: _placas
@@ -272,10 +278,15 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
 
   Future<void> _submit() async {
     if (_creando || !_formKey.currentState!.validate()) return;
+    if (_solicitud == null &&
+        _enlazar &&
+        _placaCtrl.text.trim().isNotEmpty &&
+        !_agregarPlaca())
+      return;
     if (_solicitud == null && _enlazar && _placas.isEmpty) {
       setState(
-        () =>
-            _altaError = 'Elija al menos una placa o desactive Enlazar placas.',
+        () => _altaError =
+            'Agregue al menos una placa o desactive Enlazar placas.',
       );
       return;
     }
