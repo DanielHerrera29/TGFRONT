@@ -281,8 +281,9 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
     if (_solicitud == null &&
         _enlazar &&
         _placaCtrl.text.trim().isNotEmpty &&
-        !_agregarPlaca())
+        !_agregarPlaca()) {
       return;
+    }
     if (_solicitud == null && _enlazar && _placas.isEmpty) {
       setState(
         () => _altaError =

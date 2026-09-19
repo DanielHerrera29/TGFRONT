@@ -477,6 +477,13 @@ class _ActionGrid extends StatelessWidget {
       ),
       if (isAdmin)
         _DashboardAction(
+          title: 'Empresas y clientes',
+          description: 'Crea clientes y agrega sus placas de carga.',
+          icon: Icons.business_outlined,
+          route: '/clientes',
+        ),
+      if (isAdmin)
+        _DashboardAction(
           title: 'Gestión de usuarios',
           description: 'Administra accesos y roles.',
           icon: Icons.group_outlined,

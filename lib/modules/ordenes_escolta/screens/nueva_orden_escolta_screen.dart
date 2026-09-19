@@ -403,8 +403,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
       );
       await _draft!.finish();
       if (!mounted) return;
-      _limpiarFormulario();
-      await Navigator.of(context).push(
+      await Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => _OrdenEnviadaScreen(resumen: resumen),
         ),
@@ -424,28 +423,6 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
         });
       }
     }
-  }
-
-  void _limpiarFormulario() {
-    _savedSignature = null;
-    _restoredClient = null;
-    _clienteSeleccionado = null;
-    _vehiculoSeleccionado = null;
-    _empresa.clear();
-    _placaCamabaja.clear();
-    _placaEscolta.clear();
-    _escolta.clear();
-    _observaciones.clear();
-    _firma.clear();
-    for (final viaje in _viajes) {
-      viaje.dispose();
-    }
-    setState(() {
-      _viajes
-        ..clear()
-        ..add(_TrayectoControllers());
-      _fecha = DateTime.now();
-    });
   }
 
   Future<Uint8List> _buildPdf({
@@ -1003,8 +980,10 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
     if (cliente == null || !mounted) return;
     _restoredClient = cliente.id;
     _empresa.text = cliente.nombre;
-    _placaCamabaja.text = cliente.placaCarga ?? '';
-    _vehiculoSeleccionado = cliente.placaCarga;
+    _vehiculoSeleccionado = cliente.placasCarga.length == 1
+        ? cliente.placasCarga.single
+        : null;
+    _placaCamabaja.text = _vehiculoSeleccionado ?? '';
     await _clientesProvider.load();
     if (!mounted) return;
     _restoreClient();

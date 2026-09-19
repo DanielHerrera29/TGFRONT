@@ -9,8 +9,10 @@ class Cliente {
   final String? telefono;
   final bool activo;
   final String? placaCarga;
+  final List<String> placasRegistradas;
   List<String> get placasCarga => {
     if (placaCarga != null && placaCarga!.isNotEmpty) placaCarga!,
+    ...placasRegistradas,
     ...vehiculos.where((v) => v.estado != 'inactive').map((v) => v.numPlaca),
   }.toList();
   final List<VehiculoListItem> vehiculos;
@@ -24,6 +26,7 @@ class Cliente {
     this.telefono,
     required this.activo,
     this.placaCarga,
+    this.placasRegistradas = const [],
     this.vehiculos = const [],
   });
 
@@ -36,6 +39,9 @@ class Cliente {
     telefono: m['telefono']?.toString(),
     activo: m['activo'] != false,
     placaCarga: m['placa_carga']?.toString(),
+    placasRegistradas: ((m['placas_carga'] as List?) ?? const [])
+        .map((p) => p.toString())
+        .toList(),
     vehiculos: ((m['cliente_vehiculos'] as List?) ?? const [])
         .where((r) => (r as Map)['activo'] != false && r['vehiculos'] != null)
         .map((r) {

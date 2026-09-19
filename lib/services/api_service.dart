@@ -120,6 +120,16 @@ class ApiService {
     return jsonDecode(response.body) as String;
   }
 
+  static Future<List<Map<String, dynamic>>> listarUsuariosGestion() async {
+    final response = await _client
+        .get(Uri.parse('$_baseUrl/api/servicios/usuarios-gestion'))
+        .timeout(const Duration(seconds: 20));
+    _ensureSuccess(response);
+    return (jsonDecode(response.body) as List)
+        .map((r) => Map<String, dynamic>.from(r))
+        .toList();
+  }
+
   static Future<Map<String, dynamic>> detalleCompartirOrden(String id) async {
     final response = await _client
         .get(Uri.parse('$_baseUrl/api/ordenes-escolta/$id/detalle-compartir'))

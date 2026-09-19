@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/models/app_user.dart';
-import '../../../data/repositories/user_repository.dart';
+
 import '../../../services/api_service.dart';
 import '../providers/auth_provider.dart';
 import 'register_user_screen.dart';
@@ -17,7 +17,7 @@ class ManageUsersScreen extends StatefulWidget {
 }
 
 class _ManageUsersScreenState extends State<ManageUsersScreen> {
-  final _repo = UserRepository();
+  String? _error;
   List<Map<String, dynamic>> _users = [];
   bool _loading = true;
 
@@ -28,10 +28,26 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
   }
 
   Future<void> _load() async {
-    if (mounted) setState(() => _loading = true);
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
-      final rows = await _repo.listAll();
+      final user = context.read<AuthProvider>().user;
+      if (user?.isAdmin != true) {
+        throw StateError('Solo administración puede consultar usuarios.');
+      }
+      final rows = await ApiService.listarUsuariosGestion();
       if (mounted) setState(() => _users = rows);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error =
+              'No se pudieron cargar los usuarios. Revise su sesión y reintente.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -76,6 +92,16 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_error!),
+                  TextButton(onPressed: _load, child: const Text('Reintentar')),
+                ],
+              ),
+            )
           : _users.isEmpty
           ? const Center(child: Text('Sin usuarios'))
           : ListView.builder(
@@ -216,7 +242,7 @@ class _EditarUsuarioScreenState extends State<_EditarUsuarioScreen> {
                       ),
                     ),
               icon: const Icon(Icons.directions_car_outlined),
-              label: const Text('Vehículos escolta y destinatario WhatsApp'),
+              label: const Text('Placas de los vehículos escolta'),
             ),
             TextFormField(
               controller: _nombre,

@@ -7,6 +7,33 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
   test(
+    'enviar y reiniciar no crea un borrador al limpiar el formulario',
+    () async {
+      final draft = await BorradorOrden.load('a', nueva: true);
+      final id = draft.state['clientOrderId'];
+      await draft.capture({'empresa': 'Cliente', 'viajes': []});
+      await draft.save(
+        'token',
+        confirmar: true,
+        send: (_) async => {
+          'id': 'orden-real',
+          'version': 1,
+          'estado': 'CONFIRMADA',
+        },
+      );
+      await draft.finish();
+      await draft.capture({'empresa': '', 'viajes': []});
+      expect(draft.state['clientOrderId'], id);
+      expect(await BorradorOrden.locales('a'), isEmpty);
+      final reopened = await BorradorOrden.load('a', orderId: id);
+      expect(reopened.state['archived'], true);
+      expect(reopened.state['fields']['empresa'], 'Cliente');
+      final next = await BorradorOrden.load('a', nueva: true);
+      expect(next.state['clientOrderId'], isNot(id));
+      expect(await BorradorOrden.locales('a'), isEmpty);
+    },
+  );
+  test(
     'nueva orden vacía conserva y permite abrir cada borrador anterior',
     () async {
       final first = await BorradorOrden.load('a', nueva: true);

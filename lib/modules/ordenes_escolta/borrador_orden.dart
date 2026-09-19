@@ -84,7 +84,7 @@ class BorradorOrden {
   }
 
   Future<void> capture(Map<String, dynamic> fields) async {
-    if (pending || confirmed) return;
+    if (pending || confirmed || state['archived'] == true) return;
     state['fields'] = jsonDecode(jsonEncode(fields));
     await persist();
   }
@@ -157,8 +157,6 @@ class BorradorOrden {
 
   Future<void> finish() async {
     state['archived'] = true;
-    await persist();
-    state = _fresh();
     await persist();
   }
 

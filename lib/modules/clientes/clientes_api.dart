@@ -3,6 +3,13 @@ import 'package:http/http.dart' as http;
 import '../../core/config/api_config.dart';
 import '../../data/models/cliente.dart';
 
+class ClienteRechazado implements Exception {
+  final String mensaje;
+  ClienteRechazado(this.mensaje);
+  @override
+  String toString() => mensaje;
+}
+
 class ClientesApi {
   static Future<List<Map<String, dynamic>>> vehiculos(String token) async {
     final response = await http
@@ -53,6 +60,15 @@ class ClientesApi {
         )
         .timeout(const Duration(seconds: 30));
     if (response.statusCode != 200) {
+      if (response.statusCode == 400 ||
+          response.statusCode == 403 ||
+          response.statusCode == 409) {
+        throw ClienteRechazado(
+          response.statusCode == 403
+              ? 'Solo administración puede crear clientes y agregar placas.'
+              : 'Revise los datos. El documento puede estar registrado; busque la empresa en el listado para agregarle placas.',
+        );
+      }
       throw StateError(
         response.statusCode == 409
             ? 'El documento o la solicitud ya existen. Cierre y actualice el listado para seleccionar el cliente.'

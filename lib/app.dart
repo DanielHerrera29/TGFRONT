@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'modules/clientes/clientes_screen.dart';
 import 'package:go_router/go_router.dart';
 import 'data/datasource/local_store.dart';
 import 'core/theme/app_theme.dart';
@@ -70,6 +71,7 @@ class _CargoDespachoAppState extends State<CargoDespachoApp> {
         return null;
       },
       routes: [
+        GoRoute(path: '/clientes', builder: (_, _) => const ClientesScreen()),
         GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
         GoRoute(
           path: '/forgot-password',

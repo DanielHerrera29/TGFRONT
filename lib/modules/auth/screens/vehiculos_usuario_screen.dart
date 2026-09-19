@@ -16,7 +16,7 @@ class VehiculosUsuarioScreen extends StatefulWidget {
 
 class _VehiculosUsuarioScreenState extends State<VehiculosUsuarioScreen> {
   final _placas = TextEditingController();
-  final _destino = TextEditingController();
+
   final _form = GlobalKey<FormState>();
   bool _loading = true;
   bool _saving = false;
@@ -30,7 +30,7 @@ class _VehiculosUsuarioScreenState extends State<VehiculosUsuarioScreen> {
   @override
   void dispose() {
     _placas.dispose();
-    _destino.dispose();
+
     super.dispose();
   }
 
@@ -43,7 +43,6 @@ class _VehiculosUsuarioScreenState extends State<VehiculosUsuarioScreen> {
       final c = await ContactoEscolta.cargar(usuario: widget.usuario);
       if (!mounted) return;
       _placas.text = c.placas.join(', ');
-      _destino.text = c.destino;
     } catch (_) {
       if (mounted) {
         _error =
@@ -60,29 +59,17 @@ class _VehiculosUsuarioScreenState extends State<VehiculosUsuarioScreen> {
       .where((p) => p.isNotEmpty)
       .toSet()
       .toList();
-  Future<void> _save(bool destino) async {
+  Future<void> _save() async {
     if (_saving || !_form.currentState!.validate()) return;
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
-      if (destino) {
-        await ApiService.guardarDestinoWhatsapp(
-          normalizarCelular(_destino.text),
-        );
-      } else {
-        await ApiService.guardarVehiculosEscolta(widget.usuario, _lista);
-      }
+      await ApiService.guardarVehiculosEscolta(widget.usuario, _lista);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              destino
-                  ? 'Destino de WhatsApp actualizado para todas las órdenes.'
-                  : 'Vehículos del usuario actualizados.',
-            ),
-          ),
+          SnackBar(content: Text('Vehículos del usuario actualizados.')),
         );
       }
     } catch (_) {
@@ -141,42 +128,8 @@ class _VehiculosUsuarioScreenState extends State<VehiculosUsuarioScreen> {
                 ),
                 const SizedBox(height: 20),
                 FilledButton(
-                  onPressed: _saving ? null : () => _save(false),
+                  onPressed: _saving ? null : _save,
                   child: const Text('Guardar vehículos'),
-                ),
-                const Divider(height: 32),
-                Text(
-                  'Destino de todas las órdenes',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Este número recibe las órdenes por WhatsApp; es independiente del celular del usuario.',
-                ),
-                const SizedBox(height: 24),
-                TextFormField(
-                  controller: _destino,
-                  enabled: !_saving,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Número de WhatsApp destinatario',
-                    hintText: '+57 322 350 9469',
-                    floatingLabelBehavior: FloatingLabelBehavior.always,
-                    prefixIcon: Icon(Icons.chat_outlined),
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 20,
-                    ),
-                  ),
-                  validator: (s) => (s ?? '').trim().isEmpty
-                      ? 'Ingrese el destinatario.'
-                      : validarCelular(s),
-                ),
-                const SizedBox(height: 20),
-                OutlinedButton(
-                  onPressed: _saving ? null : () => _save(true),
-                  child: const Text('Guardar destinatario'),
                 ),
               ],
             ),
