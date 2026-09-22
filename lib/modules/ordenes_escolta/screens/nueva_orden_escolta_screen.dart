@@ -1,3 +1,4 @@
+import 'confirmar_firma_dialog.dart';
 import 'package:uuid/uuid.dart';
 import '../borrador_orden.dart';
 import '../compartir_orden_whatsapp.dart';
@@ -302,7 +303,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
         icon: const Icon(Icons.mark_email_read_outlined),
         title: const Text('Confirmar orden'),
         content: const Text(
-          'La orden se guardará y se enviará por correo. Después podrá compartir el PDF y los detalles por WhatsApp; en el teléfono se abrirá el selector para compartir. Revise los datos y la firma antes de confirmar.',
+          'La orden se guardará y se enviará por correo con la firma capturada. Después podrá compartir el PDF y los detalles. Revise los datos antes de continuar.',
         ),
         actions: [
           TextButton(
@@ -319,7 +320,65 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
     if (confirma == true) await _generarYEnviar();
   }
 
+  Future<void> _pedirCodigoFirma() async {
+    final token = context.read<AuthProvider>().user?.apiToken;
+    if (token == null || _draft == null || _enviando) return;
+    setState(() => _enviando = true);
+    try {
+      await _captureDraft();
+      final result = await _draft!.save(token, confirmar: false);
+      if (!mounted) return;
+      final valida = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => ConfirmarFirmaDialog(
+          token: token,
+          ordenId: result['id'],
+          draft: _draft!,
+        ),
+      );
+      if (valida == true) {
+        _draft!.state['firmaDesbloqueada'] = true;
+        await _draft!.persist();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo solicitar el código: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _enviando = false);
+    }
+  }
+
   Future<void> _abrirFirma() async {
+    if (_draft?.state['firmaDesbloqueada'] != true) return;
+    final token = context.read<AuthProvider>().user?.apiToken;
+    final ordenId = (_draft?.state['result'] as Map?)?['id'] as String?;
+    if (token == null || ordenId == null) return;
+    try {
+      final estado = await ApiService.operacionFirma(
+        token,
+        ordenId,
+        'estado',
+        {},
+      );
+      if (estado['autorizada'] != true) {
+        _draft!.state.remove('firmaDesbloqueada');
+        await _draft!.persist();
+        if (mounted) setState(() {});
+        return;
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo comprobar el desbloqueo: $e')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
     if (_draft?.confirmed == true && _savedSignature != null) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -378,15 +437,22 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
       if (mounted) setState(() => _estadoEnvio = 'Generando el PDF firmado...');
       final firma = _savedSignature ?? await _firma.toPngBytes();
       if (firma == null) throw Exception('No fue posible generar la firma.');
-      final pdf = await _buildPdf(
-        consecutivo: creada.numeroVisible,
-        firma: firma,
-      );
+      final cachedPdf = _draft!.state['firmaPdf'] as String?;
+      final pdf = cachedPdf != null
+          ? base64Decode(cachedPdf)
+          : await _buildPdf(consecutivo: creada.numeroVisible, firma: firma);
+      if (!mounted) return;
+      _draft!.state['firmaPdf'] = base64Encode(pdf);
+      await _draft!.persist();
+      if (!mounted) return;
       if (mounted) setState(() => _estadoEnvio = 'Guardando el PDF...');
+      final firmaOtp = _draft!.state['firmaOtp'] as Map?;
       await ApiService.enviarOrdenEscolta(
         token: token,
         ordenId: creada.id,
         pdf: pdf,
+        nombreArquitecto: firmaOtp?['nombre'] as String?,
+        correoArquitecto: firmaOtp?['email'] as String?,
       );
       if (!mounted) return;
       final resumen = _OrdenResumen(
@@ -833,9 +899,25 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
                           : _recoverServer,
                       child: const Text('Recuperar versión del servidor'),
                     ),
+                    OutlinedButton.icon(
+                      onPressed: _enviando || _draft == null
+                          ? null
+                          : _pedirCodigoFirma,
+                      icon: const Icon(Icons.sms_outlined),
+                      label: Text(
+                        _draft?.state['firmaDesbloqueada'] == true
+                            ? 'Código validado · firma habilitada'
+                            : 'Pedir código al arquitecto',
+                      ),
+                    ),
+                    if (_draft?.state['firmaDesbloqueada'] != true)
+                      const Text(
+                        'Firmar está bloqueado hasta validar el código del arquitecto.',
+                      ),
                     FirmaCard(
                       firmada: _firma.isNotEmpty || _savedSignature != null,
                       enabled:
+                          _draft?.state['firmaDesbloqueada'] == true &&
                           !_enviando &&
                           !(_draft?.confirmed == true &&
                               _savedSignature != null),
@@ -844,7 +926,7 @@ class _NuevaOrdenEscoltaScreenState extends State<NuevaOrdenEscoltaScreen> {
                     const SizedBox(height: 10),
                     Tooltip(
                       message:
-                          'Genera el PDF firmado, registra la orden y la envía al correo configurado.',
+                          'Genera el PDF con la firma capturada y envía la orden por correo.',
                       child: FilledButton.icon(
                         onPressed: _enviando || _draft == null
                             ? null

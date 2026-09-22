@@ -196,6 +196,84 @@ class ApiService {
   static final http.Client _client = _SessionClient();
   static const String _baseUrl = ApiConfig.baseUrl;
 
+  static Future<Map<String, dynamic>> serviciosTeg({
+    String? desde,
+    String? hasta,
+    String? cursor,
+    String? corte,
+  }) async {
+    final response = await _client
+        .get(
+          Uri.parse('$_baseUrl/api/modelo-teg').replace(
+            queryParameters: {
+              'desde': ?desde,
+              'hasta': ?hasta,
+              'cursor': ?cursor,
+              'corte': ?corte,
+            },
+          ),
+        )
+        .timeout(const Duration(seconds: 45));
+    _ensureSuccess(response);
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  static Future<Uint8List> excelTeg({
+    String? desde,
+    String? hasta,
+    String? corte,
+  }) async {
+    final response = await _client
+        .get(
+          Uri.parse('$_baseUrl/api/modelo-teg/excel').replace(
+            queryParameters: {
+              'desde': ?desde,
+              'hasta': ?hasta,
+              'corte': ?corte,
+            },
+          ),
+        )
+        .timeout(const Duration(minutes: 5));
+    _ensureSuccess(response);
+    if (response.bodyBytes.length < 4 ||
+        response.bodyBytes[0] != 80 ||
+        response.bodyBytes[1] != 75) {
+      throw Exception('El servidor no devolvió un archivo Excel válido.');
+    }
+    return response.bodyBytes;
+  }
+
+  static Future<Map<String, dynamic>?> autenticar(
+    String email,
+    String password,
+  ) async {
+    final response = await _client
+        .post(
+          Uri.parse('$_baseUrl/api/sesion/iniciar'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'email': email.trim().toLowerCase(),
+            'password': password,
+          }),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (response.statusCode == 401) return null;
+    _ensureSuccess(response);
+    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+  }
+
+  static Future<Map<String, dynamic>?> recuperarSesion(String token) async {
+    final response = await _client
+        .get(
+          Uri.parse('$_baseUrl/api/sesion/actual'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(const Duration(seconds: 30));
+    if (response.statusCode == 401 || response.statusCode == 403) return null;
+    _ensureSuccess(response);
+    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+  }
+
   static Future<String?> iniciarSesion(String email, String password) async {
     final response = await _client
         .post(
@@ -310,10 +388,37 @@ class ApiService {
     );
   }
 
+  static Future<Map<String, dynamic>> operacionFirma(
+    String token,
+    String ordenId,
+    String accion,
+    Map<String, dynamic> datos,
+  ) async {
+    if (!{'solicitar', 'comprobar', 'estado'}.contains(accion)) {
+      throw ArgumentError('Acción de firma inválida');
+    }
+    final response = await _client
+        .post(
+          Uri.parse(
+            '$_baseUrl/api/ordenes-escolta/${Uri.encodeComponent(ordenId)}/firma/$accion',
+          ),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(datos),
+        )
+        .timeout(const Duration(seconds: 60));
+    _ensureSuccess(response);
+    return Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+  }
+
   static Future<void> enviarOrdenEscolta({
     required String token,
     required String ordenId,
     required List<int> pdf,
+    String? nombreArquitecto,
+    String? correoArquitecto,
   }) async {
     final response = await _client
         .post(
@@ -324,7 +429,13 @@ class ApiService {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer $token',
           },
-          body: jsonEncode({'pdfBase64': base64Encode(pdf)}),
+          body: jsonEncode({
+            'pdfBase64': base64Encode(pdf),
+            if (nombreArquitecto != null && nombreArquitecto.trim().isNotEmpty)
+              'nombreArquitecto': nombreArquitecto.trim(),
+            if (correoArquitecto != null && correoArquitecto.trim().isNotEmpty)
+              'correoArquitecto': correoArquitecto.trim(),
+          }),
         )
         // Render Free puede tardar cerca de un minuto en despertar antes de
         // que la API suba el PDF y contacte el servidor de correo.
@@ -459,6 +570,7 @@ class ApiService {
       'rawMessage': remesa.rawMessage,
       'clienteNombre': remesa.clienteNombre,
       'obra': remesa.obra,
+      'programa': remesa.programa,
       'observaciones': remesa.observaciones,
     };
 

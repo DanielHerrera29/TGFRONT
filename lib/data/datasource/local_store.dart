@@ -22,6 +22,7 @@ class LocalStore extends ChangeNotifier {
   void clearSession() {
     ApiService.sessionToken = null;
     _currentUser = null;
+    _settings = null;
     notifyListeners();
   }
 

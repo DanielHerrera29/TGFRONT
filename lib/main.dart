@@ -47,7 +47,7 @@ class MainApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<LocalStore>.value(value: store),
-        ChangeNotifierProvider(create: (_) => AuthProvider(store)),
+        ChangeNotifierProvider(create: (_) => AuthProvider(store)..restore()),
         ChangeNotifierProvider(create: (_) => RemesaProvider(store)),
         ChangeNotifierProvider(create: (_) => ManifiestoProvider(store)),
         ChangeNotifierProvider(create: (_) => HistoryProvider()),

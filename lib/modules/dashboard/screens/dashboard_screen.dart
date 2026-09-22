@@ -434,6 +434,13 @@ class _ActionGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final actions = <_DashboardAction>[
       _DashboardAction(
+        title: 'Generar reporte general',
+        description:
+            'Consulta servicios y exporta el Excel por fechas o completo.',
+        icon: Icons.table_chart_outlined,
+        route: '/modelo-teg',
+      ),
+      _DashboardAction(
         title: 'Órdenes de escolta',
         description: 'Crea órdenes internas y su PDF.',
         icon: Icons.assignment_turned_in_outlined,

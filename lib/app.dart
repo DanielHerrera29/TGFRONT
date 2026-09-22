@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'modules/clientes/clientes_screen.dart';
+import 'modules/modelo_teg/servicios_teg_screen.dart';
 import 'package:go_router/go_router.dart';
 import 'data/datasource/local_store.dart';
 import 'core/theme/app_theme.dart';
@@ -71,6 +72,10 @@ class _CargoDespachoAppState extends State<CargoDespachoApp> {
         return null;
       },
       routes: [
+        GoRoute(
+          path: '/modelo-teg',
+          builder: (_, _) => const ServiciosTegScreen(),
+        ),
         GoRoute(path: '/clientes', builder: (_, _) => const ClientesScreen()),
         GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
         GoRoute(
